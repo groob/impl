@@ -251,8 +251,19 @@ func funcs(iface string) ([]Func, error) {
 
 const stub = "func ({{.Recv}}) {{.Name}}" +
 	"({{range .Params}}{{.Name}} {{.Type}}, {{end}})" +
-	"({{range .Res}}{{.Name}} {{.Type}}, {{end}})" +
-	"{\n" + "panic(\"not implemented\")" + "}\n\n"
+	"({{range .Res}}{{.Type}}, {{end}})" +
+	"{\n" + "var ( \n" +
+	"{{range .Res}}{{.Name}} {{.Type}}\n {{end}}" +
+	")\n" +
+	"defer func(begin time.Time) {\n" +
+	"lvs := []string{\"method\", \"{{.Name}}\", \"error\", fmt.Sprint(err != nil)}\n" +
+	"mw.requestCount.With(lvs...).Add(1)\n" +
+	"mw.requestLatency.With(lvs...).Observe(time.Since(begin).Seconds())\n" +
+	"}(time.Now())\n" +
+	"{{range .Res}}{{.Name}}, {{end}}= mw.Service.{{.Name}}" +
+	"({{range .Params}}{{.Name}}, {{end}})\n" +
+	"return {{range .Res}}{{.Name}}, {{end}}\n" +
+	"}\n\n"
 
 var tmpl = template.Must(template.New("test").Parse(stub))
 
@@ -267,7 +278,10 @@ func genStubs(recv string, fns []Func) []byte {
 		tmpl.Execute(&buf, meth)
 	}
 
-	pretty, err := format.Source(buf.Bytes())
+	result := bytes.Replace(buf.Bytes(), []byte("err,"), []byte("err"), -1)
+	// return result
+
+	pretty, err := format.Source(result)
 	if err != nil {
 		panic(err)
 	}
